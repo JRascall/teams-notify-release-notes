@@ -16,6 +16,7 @@ async function run() {
     const webhookUrl = getInput("webhook-url");
     const productName = getInput("product-name");
     const githubToken = getInput("github-token");
+    const linearBaseUrl = getInput("linear-url");
     const releaseDate = new Date().toISOString().split("T")[0];
 
     const octokit = github.getOctokit(githubToken);
@@ -23,7 +24,7 @@ async function run() {
 
     const latestTag = await getLatestTag(octokit, context);
     const commits = await getCommitsSinceLastRelease(octokit, context);
-    const sections = parseCommits(commits);
+    const sections = parseCommits(commits, linearBaseUrl);
 
     const message = {
       type: "message",
@@ -114,7 +115,7 @@ function parseConventionalCommit(message) {
   };
 }
 
-function parseCommits(commits) {
+function parseCommits(commits, linearBaseUrl) {
   const sections = {
     features: [],
     improvements: [],
@@ -137,9 +138,18 @@ function parseCommits(commits) {
 
     if (section) {
       const authorName = commit.commit.author.name;
-      const title = scope
+      const baseTitle = scope
         ? `${scope} - ${subject} - ${authorName}`
         : `${subject} - ${authorName}`;
+
+      // If scope matches project-number format, wrap entire title in link
+      let title;
+      if (scope && scope.match(/^[A-Za-z]+-\d+$/)) {
+        const linearUrl = `${linearBaseUrl}/${scope}`;
+        title = `[${baseTitle}](${linearUrl})`;
+      } else {
+        title = baseTitle;
+      }
 
       sections[section].push({
         title,
@@ -152,7 +162,7 @@ function parseCommits(commits) {
 }
 
 function formatReleaseNotes(productName, version, releaseDate, sections) {
-  let markdown = `# Release Notes - ${productName} ${version}\n`;
+  let markdown = `### Release Notes - ${productName} ${version}\n`; // Made main title bigger
   markdown += `**Release Date:** ${releaseDate}\n\n`;
 
   if (sections.features.length > 0) {
