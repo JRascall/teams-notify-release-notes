@@ -1,0 +1,17 @@
+{
+  "name": "teams-notify-release-notes",
+  "version": "1.0.0",
+  "description": "A GitHub Action that automatically posts release notes to Microsoft Teams when a new release is published.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Jamie Mascall",
+  "license": "ISC",
+  "dependencies": {
+    "@actions/core": "^1.11.1",
+    "@actions/github": "^6.0.0",
+    "axios": "^1.7.8",
+    "dotenv": "^16.4.5"
+  }
+}
