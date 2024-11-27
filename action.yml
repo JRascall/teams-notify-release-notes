@@ -7,6 +7,9 @@ inputs:
   product-name:
     description: "Product Name"
     required: true
+  linear-url:
+    description: "Linear URL"
+    required: false
   github-token:
     description: "Github Token"
     required: true

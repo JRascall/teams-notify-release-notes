@@ -16,7 +16,7 @@ async function run() {
     const webhookUrl = getInput("webhook-url");
     const productName = getInput("product-name");
     const githubToken = getInput("github-token");
-    const linearBaseUrl = getInput("linear-url");
+    const linearBaseUrl = getInput("linear-url") || null;
     const releaseDate = new Date().toISOString().split("T")[0];
 
     const octokit = github.getOctokit(githubToken);
@@ -115,7 +115,7 @@ function parseConventionalCommit(message) {
   };
 }
 
-function parseCommits(commits, linearBaseUrl) {
+function parseCommits(commits, linearBaseUrl = null) {
   const sections = {
     features: [],
     improvements: [],
@@ -142,9 +142,9 @@ function parseCommits(commits, linearBaseUrl) {
         ? `${scope} - ${subject} - ${authorName}`
         : `${subject} - ${authorName}`;
 
-      // If scope matches project-number format, wrap entire title in link
+      // Only add Linear links if linearBaseUrl is provided
       let title;
-      if (scope && scope.match(/^[A-Za-z]+-\d+$/)) {
+      if (linearBaseUrl && scope && scope.match(/^[A-Za-z]+-\d+$/)) {
         const linearUrl = `${linearBaseUrl}/${scope}`;
         title = `[${baseTitle}](${linearUrl})`;
       } else {
