@@ -1,24 +1,27 @@
 # Teams Release Notes Action
 
-A GitHub Action that automatically posts release notes to Microsoft Teams when a new release is published. It supports linking to Linear tickets and aggregates commits from multiple tags.
+A GitHub Action that automatically posts release notes to Microsoft Teams when a new release is published. It supports linking to Linear tickets and aggregates commits between release tags.
 
 ## Features
 
-- Automatically fetches commits from latest git tag to next
+- Generates release notes between specified release tags
 - Parses conventional commits into categorized release notes
 - Posts formatted release notes to Teams channel
 - Optional Linear ticket linking support
+- Customizable release tag format
 
 ## Usage
 
 1. Add this to your workflow:
 
 ```yaml
-- uses: JRascall/teams-notify-release-notes@v1
+- uses: JRascall/teams-notify-release-notes@v2
   with:
     webhook-url: ${{ secrets.TEAMS_WEBHOOK_URL }}
     product-name: "Your Product"
     github-token: ${{ secrets.GITHUB_TOKEN }}
+    tag: "v1.0.0"
+    tag-format: "{tag}-release" # Optional
     linear-url: "https://linear.app/your-org/issue" # Optional
 ```
 
@@ -26,12 +29,34 @@ A GitHub Action that automatically posts release notes to Microsoft Teams when a
 
 ## Inputs
 
-| Input        | Description                                                        | Required |
-| ------------ | ------------------------------------------------------------------ | -------- |
-| webhook-url  | Microsoft Teams webhook URL                                        | Yes      |
-| product-name | Name of your product                                               | Yes      |
-| github-token | GitHub token for API access                                        | Yes      |
-| linear-url   | Base URL for Linear tickets (e.g., "https://linear.app/org/issue") | No       |
+| Input        | Description                                                        | Required | Default       |
+| ------------ | ------------------------------------------------------------------ | -------- | ------------- |
+| webhook-url  | Microsoft Teams webhook URL                                        | Yes      | N/A           |
+| product-name | Name of your product                                               | Yes      | N/A           |
+| github-token | GitHub token for API access                                        | Yes      | N/A           |
+| tag          | Tag to generate release notes from                                 | Yes      | N/A           |
+| tag-format   | Format for release tags (e.g. "{tag}-release")                     | No       | {tag}-release |
+| linear-url   | Base URL for Linear tickets (e.g., "https://linear.app/org/issue") | No       | N/A           |
+
+## How It Works
+
+The action works by:
+
+1. Taking your input tag (e.g., "v1.0.0")
+2. Creating a release tag using the format (e.g., "v1.0.0-release")
+3. Finding the next release tag in sequence
+4. Generating release notes for all commits between these two release tags
+
+For example, if you have tags:
+
+```
+v1.0.0-release
+v1.0.0
+v0.9.0
+v0.9.0-release
+```
+
+And you pass `tag: "v1.0.0"`, it will generate release notes for commits between `v0.9.0-release` and `v1.0.0-release`.
 
 ## Example Output
 

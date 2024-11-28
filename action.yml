@@ -13,6 +13,13 @@ inputs:
   github-token:
     description: "Github Token"
     required: true
+  tag:
+    description: "Tag to generate release notes from"
+    required: true
+  tag-format:
+    description: "Format for the release tag (e.g. '{tag}-release')"
+    required: false
+    default: "{tag}-release"
 runs:
   using: "node16"
   main: "dist/index.js"

@@ -17,13 +17,31 @@ async function run() {
     const productName = getInput("product-name");
     const githubToken = getInput("github-token");
     const linearBaseUrl = getInput("linear-url") || null;
+    const currentTag = getInput("tag");
+    const tagFormat = getInput("tag-format") || "{tag}-release";
     const releaseDate = new Date().toISOString().split("T")[0];
 
     const octokit = github.getOctokit(githubToken);
     const { context } = github;
 
-    const latestTag = await getLatestTag(octokit, context);
-    const commits = await getCommitsSinceLastRelease(octokit, context);
+    // Create the current release tag
+    const currentReleaseTag = tagFormat.replace("{tag}", currentTag);
+
+    // Find the next release tag
+    const nextReleaseTag = await findNextReleaseTag(
+      octokit,
+      context,
+      currentTag,
+      tagFormat,
+    );
+
+    // Get commits between the two release tags
+    const commits = await getCommitsBetweenTags(
+      octokit,
+      context,
+      nextReleaseTag,
+      currentReleaseTag,
+    );
     const sections = parseCommits(commits, linearBaseUrl);
 
     const message = {
@@ -38,7 +56,7 @@ async function run() {
                 type: "TextBlock",
                 text: formatReleaseNotes(
                   productName,
-                  latestTag,
+                  currentTag,
                   releaseDate,
                   sections,
                 ),
@@ -59,30 +77,50 @@ async function run() {
   }
 }
 
-async function getLatestTag(octokit, context) {
-  const tags = await octokit.rest.repos.listTags({
-    owner: context.repo.owner,
-    repo: context.repo.repo,
-    per_page: 1,
-  });
-
-  return tags.data[0]?.name || "v1.0.0";
-}
-
-async function getCommitsSinceLastRelease(octokit, context) {
+async function findNextReleaseTag(octokit, context, currentTag, tagFormat) {
   try {
-    const releases = await octokit.rest.repos.listReleases({
+    // Get all tags
+    const { data: tags } = await octokit.rest.repos.listTags({
       owner: context.repo.owner,
       repo: context.repo.repo,
+      per_page: 100,
     });
 
-    const latestTwoReleases = releases.data.slice(0, 2);
+    // Create the current release tag
+    const currentReleaseTag = tagFormat.replace("{tag}", currentTag);
 
+    // Find the index of our current release tag
+    const currentIndex = tags.findIndex(
+      (tag) => tag.name === currentReleaseTag,
+    );
+
+    if (currentIndex === -1) {
+      throw new Error(`Could not find release tag ${currentReleaseTag}`);
+    }
+
+    // Find the next release tag after our current position
+    for (let i = currentIndex + 1; i < tags.length; i++) {
+      if (tags[i].name.endsWith("-release")) {
+        return tags[i].name;
+      }
+    }
+
+    throw new Error(
+      `No previous release tag found before ${currentReleaseTag}`,
+    );
+  } catch (error) {
+    console.error("Error finding next release tag:", error);
+    throw error;
+  }
+}
+
+async function getCommitsBetweenTags(octokit, context, baseTag, headTag) {
+  try {
     const commits = await octokit.rest.repos.compareCommits({
       owner: context.repo.owner,
       repo: context.repo.repo,
-      base: latestTwoReleases[1].tag_name,
-      head: latestTwoReleases[0].tag_name,
+      base: baseTag,
+      head: headTag,
     });
 
     return commits.data.commits;
@@ -162,7 +200,7 @@ function parseCommits(commits, linearBaseUrl = null) {
 }
 
 function formatReleaseNotes(productName, version, releaseDate, sections) {
-  let markdown = `### Release Notes - ${productName} ${version}\n`; // Made main title bigger
+  let markdown = `### Release Notes - ${productName} ${version}\n`;
   markdown += `**Release Date:** ${releaseDate}\n\n`;
 
   if (sections.features.length > 0) {
