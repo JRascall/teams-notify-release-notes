@@ -24,24 +24,36 @@ async function run() {
     const octokit = github.getOctokit(githubToken);
     const { context } = github;
 
-    // Create the current release tag
-    const currentReleaseTag = tagFormat.replace("{tag}", currentTag);
+    // Determine if this is a hotfix
+    const isHotfix = currentTag.includes("-hotfix");
 
-    // Find the next release tag
-    const nextReleaseTag = await findNextReleaseTag(
-      octokit,
-      context,
-      currentTag,
-      tagFormat,
-    );
+    let baseTag, compareTag, releaseInfo;
 
-    // Get commits between the two release tags
+    if (isHotfix) {
+      // Handle hotfix logic
+      releaseInfo = await findHotfixRelatedTags(octokit, context, currentTag);
+      baseTag = releaseInfo.previousHotfixTag || releaseInfo.baseReleaseTag;
+      compareTag = currentTag;
+    } else {
+      // Handle regular release logic
+      releaseInfo = await findPreviousReleaseTag(
+        octokit,
+        context,
+        currentTag,
+        tagFormat,
+      );
+      baseTag = releaseInfo.previousTag;
+      compareTag = currentTag;
+    }
+
+    // Get commits between the tags
     const commits = await getCommitsBetweenTags(
       octokit,
       context,
-      nextReleaseTag,
-      currentReleaseTag,
+      baseTag,
+      compareTag,
     );
+
     const sections = parseCommits(commits, linearBaseUrl);
 
     const message = {
@@ -59,6 +71,8 @@ async function run() {
                   currentTag,
                   releaseDate,
                   sections,
+                  isHotfix,
+                  releaseInfo,
                 ),
                 wrap: true,
               },
@@ -77,39 +91,98 @@ async function run() {
   }
 }
 
-async function findNextReleaseTag(octokit, context, currentTag, tagFormat) {
+async function findHotfixRelatedTags(octokit, context, hotfixTag) {
   try {
-    // Get all tags
     const { data: tags } = await octokit.rest.repos.listTags({
       owner: context.repo.owner,
       repo: context.repo.repo,
       per_page: 100,
     });
 
-    // Create the current release tag
-    const currentReleaseTag = tagFormat.replace("{tag}", currentTag);
+    // Extract the base version and hotfix number
+    const baseVersion = hotfixTag.split("-hotfix")[0];
+    const currentHotfixNum = hotfixTag.includes("-hotfix")
+      ? parseInt(hotfixTag.split("-hotfix")[1] || "1")
+      : 1;
 
-    // Find the index of our current release tag
-    const currentIndex = tags.findIndex(
-      (tag) => tag.name === currentReleaseTag,
-    );
-
-    if (currentIndex === -1) {
-      throw new Error(`Could not find release tag ${currentReleaseTag}`);
+    // Find the base release tag
+    const baseReleaseTag = `${baseVersion}-release`;
+    if (!tags.some((tag) => tag.name === baseReleaseTag)) {
+      throw new Error(`Could not find base release tag: ${baseReleaseTag}`);
     }
 
-    // Find the next release tag after our current position
-    for (let i = currentIndex + 1; i < tags.length; i++) {
-      if (tags[i].name.endsWith("-release")) {
-        return tags[i].name;
-      }
-    }
+    // Find all hotfix tags for this version
+    const relatedHotfixes = tags
+      .filter((tag) => tag.name.startsWith(`${baseVersion}-hotfix`))
+      .map((tag) => ({
+        name: tag.name,
+        number: parseInt(tag.name.split("-hotfix")[1] || "1"),
+      }))
+      .sort((a, b) => b.number - a.number);
 
-    throw new Error(
-      `No previous release tag found before ${currentReleaseTag}`,
+    // Find the previous hotfix (if any)
+    const previousHotfix = relatedHotfixes.find(
+      (tag) => tag.number < currentHotfixNum,
     );
+
+    return {
+      baseReleaseTag,
+      previousHotfixTag: previousHotfix ? previousHotfix.name : null,
+      type: "hotfix",
+    };
   } catch (error) {
-    console.error("Error finding next release tag:", error);
+    console.error("Error finding related tags:", error);
+    throw error;
+  }
+}
+
+async function findPreviousReleaseTag(octokit, context, currentTag, tagFormat) {
+  try {
+    const { data: tags } = await octokit.rest.repos.listTags({
+      owner: context.repo.owner,
+      repo: context.repo.repo,
+      per_page: 100,
+    });
+
+    // Function to extract version number from tag
+    const getVersionNumber = (tag) => {
+      const match = tag.match(/v?(\d+\.\d+\.\d+)/);
+      return match ? match[1] : null;
+    };
+
+    // Get the version number of the current tag
+    const currentVersion = getVersionNumber(currentTag);
+    if (!currentVersion) {
+      throw new Error(`Invalid version format in tag: ${currentTag}`);
+    }
+
+    // Find all release tags with lower version numbers
+    const releaseTags = tags
+      .filter((tag) => tag.name.endsWith("-release"))
+      .map((tag) => ({
+        name: tag.name,
+        version: getVersionNumber(tag.name),
+      }))
+      .filter((tag) => tag.version && tag.version < currentVersion)
+      .sort((a, b) => {
+        const [aMajor, aMinor, aPatch] = a.version.split(".").map(Number);
+        const [bMajor, bMinor, bPatch] = b.version.split(".").map(Number);
+
+        if (aMajor !== bMajor) return bMajor - aMajor;
+        if (aMinor !== bMinor) return bMinor - aMinor;
+        return bPatch - aPatch;
+      });
+
+    if (releaseTags.length === 0) {
+      throw new Error(`No previous release tag found before ${currentTag}`);
+    }
+
+    return {
+      previousTag: releaseTags[0].name,
+      type: "release",
+    };
+  } catch (error) {
+    console.error("Error finding previous release tag:", error);
     throw error;
   }
 }
@@ -180,7 +253,6 @@ function parseCommits(commits, linearBaseUrl = null) {
         ? `${scope} - ${subject} - ${authorName}`
         : `${subject} - ${authorName}`;
 
-      // Only add Linear links if linearBaseUrl is provided
       let title;
       if (linearBaseUrl && scope && scope.match(/^[A-Za-z]+-\d+$/)) {
         const linearUrl = `${linearBaseUrl}/${scope}`;
@@ -199,9 +271,25 @@ function parseCommits(commits, linearBaseUrl = null) {
   return sections;
 }
 
-function formatReleaseNotes(productName, version, releaseDate, sections) {
-  let markdown = `### Release Notes - ${productName} ${version}\n`;
-  markdown += `**Release Date:** ${releaseDate}\n\n`;
+function formatReleaseNotes(
+  productName,
+  version,
+  releaseDate,
+  sections,
+  isHotfix,
+  releaseInfo,
+) {
+  let markdown = `### ${isHotfix ? "Hotfix" : "Release"} Notes - ${productName} ${version}\n`;
+  markdown += `**Release Date:** ${releaseDate}\n`;
+
+  if (isHotfix) {
+    markdown += `**Base Release:** ${releaseInfo.baseReleaseTag}\n`;
+    if (releaseInfo.previousHotfixTag) {
+      markdown += `**Changes since:** ${releaseInfo.previousHotfixTag}\n`;
+    }
+  }
+
+  markdown += "\n";
 
   if (sections.features.length > 0) {
     markdown += "## 🚀 New Features\n";

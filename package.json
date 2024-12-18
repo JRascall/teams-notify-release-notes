@@ -4,6 +4,7 @@
   "description": "A GitHub Action that automatically posts release notes to Microsoft Teams when a new release is published.",
   "main": "index.js",
   "scripts": {
+    "build": "ncc build index.js -o dist",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "Jamie Mascall",
@@ -13,5 +14,8 @@
     "@actions/github": "^6.0.0",
     "axios": "^1.7.8",
     "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@vercel/ncc": "^0.38.3"
   }
 }
